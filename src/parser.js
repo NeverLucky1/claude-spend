@@ -126,14 +126,54 @@ function extractSessionData(entries) {
   return queries;
 }
 
+// Calendar date (YYYY-MM-DD) in this computer's local time zone.
+function localDay(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (isNaN(d)) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Filters by the date of each message, not the date the session started, so a
+// conversation begun yesterday still counts the messages sent today. Sessions
+// that straddle the range are trimmed to the in-range messages and re-totalled.
 function filterSessionsByDateRange(sessions, { from, to } = {}) {
-  return sessions.filter(s => {
-    const date = s.date;
-    if (!date || date === 'unknown') return true;
-    if (from && date < from) return false;
-    if (to && date > to) return false;
-    return true;
-  });
+  if (!from && !to) return sessions;
+  const inRange = (d) => !(from && d < from) && !(to && d > to);
+  const out = [];
+  for (const s of sessions) {
+    const all = s.queries || [];
+    const kept = all.filter(q => {
+      const d = localDay(q.assistantTimestamp || q.userTimestamp);
+      if (!d) return !s.date || s.date === 'unknown' || inRange(s.date);
+      return inRange(d);
+    });
+    if (kept.length === 0) {
+      if (all.length === 0 && (!s.date || s.date === 'unknown' || inRange(s.date))) out.push(s);
+      continue;
+    }
+    if (kept.length === all.length) { out.push(s); continue; }
+    const sum = (k) => kept.reduce((acc, q) => acc + (q[k] || 0), 0);
+    const inputTokens = sum('inputTokens');
+    const outputTokens = sum('outputTokens');
+    const cacheCreationTokens = sum('cacheCreationTokens');
+    const cacheReadTokens = sum('cacheReadTokens');
+    out.push({
+      ...s,
+      queries: kept,
+      queryCount: kept.length,
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+      totalTokens: inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
+      cost: sum('cost'),
+      saved: sum('saved'),
+      date: localDay(kept[0].assistantTimestamp || kept[0].userTimestamp) || s.date,
+      durationMinutes: computeSessionDuration({ queries: kept }),
+    });
+  }
+  return out;
 }
 
 async function parseAllSessions({ from, to } = {}) {
@@ -204,7 +244,7 @@ async function parseAllSessions({ from, to } = {}) {
       const totalTokens = inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens;
 
       const firstTimestamp = entries.find(e => e.timestamp)?.timestamp;
-      const date = firstTimestamp ? firstTimestamp.split('T')[0] : 'unknown';
+      const date = localDay(firstTimestamp) || 'unknown';
 
       // Primary model
       const modelCounts = {};
@@ -480,8 +520,8 @@ async function parseAllSessions({ from, to } = {}) {
     const periodDays = Math.max(1, Math.round(periodMs / (1000 * 60 * 60 * 24)));
     const prevTo = new Date(fromDate.getTime() - 1000 * 60 * 60 * 24);
     const prevFrom = new Date(prevTo.getTime() - periodMs);
-    const prevFromStr = prevFrom.toISOString().split('T')[0];
-    const prevToStr = prevTo.toISOString().split('T')[0];
+    const prevFromStr = localDay(prevFrom);
+    const prevToStr = localDay(prevTo);
     const prevSessions = filterSessionsByDateRange(sessions, { from: prevFromStr, to: prevToStr });
     const prevCost = prevSessions.reduce((sum, s) => sum + s.cost, 0);
     const prevTokens = prevSessions.reduce((sum, s) => sum + s.totalTokens, 0);
@@ -814,4 +854,4 @@ function aggregateToolUsage(sessions) {
     .sort((a, b) => b.count - a.count);
 }
 
-module.exports = { parseAllSessions, parseJSONLFile, extractSessionData, filterSessionsByDateRange, computeSessionDuration, computeForecast, aggregateToolUsage };
+module.exports = { localDay, parseAllSessions, parseJSONLFile, extractSessionData, filterSessionsByDateRange, computeSessionDuration, computeForecast, aggregateToolUsage };

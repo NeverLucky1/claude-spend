@@ -3131,5 +3131,9 @@ document.addEventListener('keydown', function(e) {
   }
 });
 </script>
+<script>
+// Keep-alive: tells the server this page is open (with --auto-exit the server stops when the last page closes)
+try { new EventSource('/api/alive'); } catch (e) {}
+</script>
 </body>
 </html>

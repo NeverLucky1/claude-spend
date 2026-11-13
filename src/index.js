@@ -14,6 +14,7 @@ Usage:
 Options:
   --port <port>   Port to run dashboard on (default: 3456)
   --no-open       Don't auto-open browser
+  --auto-exit     Stop the server when the dashboard page is closed
   --mcp           Run as MCP server (stdio transport)
   --report        Print a spend report (markdown; --json for machines) and exit
   --quota         Print subscription window utilization and exit
@@ -78,17 +79,34 @@ if (args.includes('--quota')) {
   const portIndex = args.indexOf('--port');
   const port = portIndex !== -1 ? parseInt(args[portIndex + 1], 10) : 3456;
   const noOpen = args.includes('--no-open');
+  const autoExit = args.includes('--auto-exit');
 
   if (isNaN(port)) {
     console.error('Error: --port must be a number');
     process.exit(1);
   }
 
-  const app = createServer();
+  const app = createServer(autoExit ? {
+    onIdle: () => {
+      console.log('\n  Dashboard closed. Shutting down...');
+      process.exit(0);
+    },
+  } : {});
 
-  const server = app.listen(port, async () => {
-    const url = `http://localhost:${port}`;
+  // Listen on this computer only, so other devices on the network can't reach it
+  const server = app.listen(port, '127.0.0.1', async () => {
+    const url = `http://127.0.0.1:${port}`;
     console.log(`\n  claude-spend dashboard running at ${url}\n`);
+
+    if (autoExit) {
+      // if no page ever connects (browser failed to open), don't linger forever
+      setTimeout(() => {
+        if (!app.locals.everConnected) {
+          console.log('  No dashboard page connected. Shutting down...');
+          process.exit(0);
+        }
+      }, 60000).unref();
+    }
 
     if (!noOpen) {
       try {

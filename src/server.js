@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-function createServer() {
+function createServer(opts = {}) {
   const app = express();
 
   // Cache parsed data (reparse on demand via refresh endpoint)
@@ -48,7 +48,9 @@ function createServer() {
 
   app.get('/api/presets', (req, res) => {
     const now = new Date();
-    const today = now.toISOString().split('T')[0];
+    // Local calendar dates (toISOString would give UTC and be off by a day near midnight)
+    const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const today = day(now);
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
     const startOfLastWeek = new Date(startOfWeek);
@@ -61,11 +63,37 @@ function createServer() {
 
     res.json({
       today: { from: today, to: today },
-      thisWeek: { from: startOfWeek.toISOString().split('T')[0], to: today },
-      lastWeek: { from: startOfLastWeek.toISOString().split('T')[0], to: endOfLastWeek.toISOString().split('T')[0] },
-      thisMonth: { from: startOfMonth.toISOString().split('T')[0], to: today },
-      lastMonth: { from: startOfLastMonth.toISOString().split('T')[0], to: endOfLastMonth.toISOString().split('T')[0] },
+      thisWeek: { from: day(startOfWeek), to: today },
+      lastWeek: { from: day(startOfLastWeek), to: day(endOfLastWeek) },
+      thisMonth: { from: day(startOfMonth), to: today },
+      lastMonth: { from: day(startOfLastMonth), to: day(endOfLastMonth) },
       lifetime: {},
+    });
+  });
+
+  // Keep-alive: each open dashboard page holds one /api/alive connection. When the
+  // last one closes (tab/browser closed) and none returns within the grace period,
+  // opts.onIdle() fires. Used by --auto-exit.
+  let clients = 0;
+  let idleTimer = null;
+  app.get('/api/alive', (req, res) => {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+    res.write(':ok\n\n');
+    clients++;
+    app.locals.everConnected = true;
+    clearTimeout(idleTimer);
+    const ping = setInterval(() => res.write(':\n\n'), 15000);
+    req.on('close', () => {
+      clearInterval(ping);
+      clients--;
+      if (clients === 0 && opts.onIdle) {
+        // grace period so a page refresh doesn't stop the server
+        idleTimer = setTimeout(() => { if (clients === 0) opts.onIdle(); }, opts.idleMs || 5000);
+      }
     });
   });
 
