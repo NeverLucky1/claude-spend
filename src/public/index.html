@@ -1045,7 +1045,7 @@
   }
   .tool-bar-row {
     display: grid;
-    grid-template-columns: 110px 1fr 60px;
+    grid-template-columns: 300px 1fr 60px;
     gap: 12px;
     align-items: center;
     padding: 8px 12px;
@@ -1059,10 +1059,10 @@
     font-size: 13px;
     font-weight: 500;
     color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
+  .tool-name .tool-server { color: var(--text-tertiary, var(--text-secondary)); opacity: 0.7; }
+  @media (max-width: 700px) { .tool-bar-row { grid-template-columns: 140px 1fr 50px; } }
   .tool-bar-track {
     height: 6px;
     background: var(--border);
@@ -2397,6 +2397,13 @@ function renderProjectBreakdown() {
 }
 
 // Tool usage
+// "mcp__server__tool_name" -> "server › tool_name" (dimmed server); built-in tools unchanged
+function toolLabel(name) {
+  const m = /^mcp__(.+?)__(.+)$/.exec(name || '');
+  if (!m) return escapeHtml(name);
+  return '<span class="tool-server">' + escapeHtml(m[1]) + ' ›</span> ' + escapeHtml(m[2]);
+}
+
 function renderToolUsage() {
   const tools = DATA.toolUsage;
   if (!tools || !tools.length) {
@@ -2413,7 +2420,7 @@ function renderToolUsage() {
     var color = toolColors[Math.min(i, toolColors.length - 1)];
     var opacity = Math.max(0.4, 1 - (i * 0.04));
     return '<div class="tool-bar-row">' +
-      '<span class="tool-name">' + escapeHtml(t.tool) + '</span>' +
+      '<span class="tool-name" title="' + escapeHtml(t.tool).replace(/"/g, '&quot;') + '">' + toolLabel(t.tool) + '</span>' +
       '<div class="tool-bar-track"><div class="tool-bar-fill" style="width:' + pct + '%;background:' + color + ';opacity:' + opacity + '"></div></div>' +
       '<span class="tool-count">' + fmtFull(t.count) + '</span>' +
       '</div>';
